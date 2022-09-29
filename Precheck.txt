@@ -1,0 +1,524 @@
+import wmi
+import win32com.client as com
+#import getpass
+import pypyodbc
+#import pyodbc
+import os
+import smtplib
+import csv
+import logging
+from email.message import EmailMessage
+from datetime import datetime
+import time
+
+now = datetime.now()
+today = now.strftime("%d/%m/%Y %H:%M:%S")
+Log_Format = "%(levelname)s %(asctime)s - %(message)s"
+logging.basicConfig(filename = "Prechecklog.log",filemode = "w+",format = Log_Format, level = logging.INFO)
+logger = logging.getLogger()
+
+file = open(r"C:\pyt\Precheckresult.txt","w+")
+file.truncate(0)
+file.close()
+file = open(r"C:\pyt\Prechecknotresult.txt","w+")
+file.truncate(0)
+file.close()
+
+class PrePostCheck:    
+
+    def connection_check(self,server,instance):
+        self.server = server
+        #self.username=username
+        #self.password=password
+        try:
+            print("Establishing connection to %s" +server)
+            connection = wmi.WMI(server)
+            print("Connection established",server + " "+ today)
+            logging.info("CONNECTING TO SERVER USING wmi server name ...{0}".format(server))
+            return connection
+        except wmi.x_wmi:
+            print("Server is not accessible" + " "+today)
+            with open(r"C:\pyt\Prechecknotresult.txt", "a+") as f:
+                f.write(server + "   server is not accessible   " + today + "\n")
+                f.write("No result for: " +server + "  " + instance + "\n")
+
+    def folder_created(self,conn,foldername,fdrive):
+        try:
+            conn.Win32_Process.Create(CommandLine="cmd.exe /c mkdir "+fdrive+":\\"+foldername+"")
+            print("Folder created")
+            logging.info("Folder created on server ...{0}".format(server))
+
+        except Exception as e:
+            print(" Unable to create folder ")
+            print(e)
+
+    def query_exe(self,conn,cnxn,sqlquery,instance,server):
+        try:
+            if sqlquery == sqlAOAG :
+                cursor_aoag = connsql.cursor()
+                cursor_aoag.execute(sqlAOAG)
+                res_aoag = cursor_aoag.fetchall()
+                #print((res_aoag))
+                for i in res_aoag:
+                    if i == (b'1',):
+                        with open(r"C:\pyt\Precheckresult.txt", "a+") as f:
+                            f.write("Always On Availability Groups is enabled"+ "\n")
+                            f.write("\n")
+                        print("Always On Availability Groups is enabled")
+                        logging.info("Sending email to the users {0}".format(server))
+                        msg = EmailMessage()
+                        msg['From']='closvw3144@volvocars.net'
+                        msg['To']=email_list
+                        msg['Subject']='Always On Availability Groups is enabled'
+                        msg.set_content("Your availability groups is enabled")
+
+                        server = smtplib.SMTP(SMTPserver)
+                        server.send_message(msg)
+    
+                    if i == (b'0',):
+                        with open(r"C:\pyt\Precheckresult.txt", "a+") as f:
+                          f.write("Always On Availability Groups is disabled"+ "\n")
+                          f.write("\n")
+                        print("Always On Availability Groups is disabled")
+
+            elif sqlquery==sqlbakupsize:
+                cursor = cnxn.cursor()
+                cursor.execute(sqlquery)
+                resname = cursor.fetchall()
+                for i in resname:
+                    #print(i)
+                    pass
+                    for k in i:
+                        print(k)
+                with open(r"C:\pyt\Precheckresult.txt", "a+", newline='') as f:
+                    wrtr = csv.writer(f)
+                    for row in resname:
+                        wrtr.writerow(row)
+                        wrtr.writerow(" ")
+                return k
+                                
+            else:                
+                cursor = cnxn.cursor()
+                cursor.execute(sqlquery)
+                resname = cursor.fetchall()            
+                for i in resname:
+                    print(i)
+                with open(r"C:\pyt\Precheckresult.txt", "a+", newline='') as f:
+                    wrtr = csv.writer(f)
+                    for row in resname:
+                        wrtr.writerow(row)
+                        wrtr.writerow(" ")
+                    
+        except Exception as e:
+            if sqlquery == sqlrss:
+                with open(r"C:\pyt\Precheckresult.txt", "a+") as f:
+                    f.write("No Report Server Service "+ "\n")
+                    f.write("\n")
+            elif sqlquery == sqllogshiping:
+                with open(r"C:\pyt\Precheckresult.txt", "a+") as f:
+                    f.write("No LOG Shipping Configured "+ "\n")
+                    f.write("\n")
+            elif sqlquery == sqlAOAG:
+                with open(r"C:\pyt\Precheckresult.txt", "a+") as f:
+                    f.write("No AOAG Configured :" + "\n")
+                    f.write("\n")
+            else:
+                with open(r"C:\pyt\Precheckresult.txt", "a+") as f:
+                    f.write("No Result :"+ "\n")
+                    f.write("\n")
+                
+            print(" A error occured when executing the query ")
+            print(e)
+
+    def sql(self,db,foldername,fdrive,server):
+        try:
+            statement="""
+            DECLARE @name NVARCHAR(256) -- database name  
+            DECLARE @path NVARCHAR(512) -- path for backup files  
+            DECLARE @fileName NVARCHAR(512) -- filename for backup  
+            DECLARE @fileDate NVARCHAR(40) -- used for file name
+     
+            -- specify database backup directory
+            SET @path = '"""+fdrive+""":\\"""+foldername+"""'  
+     
+            -- specify filename format
+            SELECT @fileDate = CONVERT(NVARCHAR(20),GETDATE(),112) 
+     
+            SET @fileName = @path + '\\' + '"""+db+"""' + '_' + @fileDate + '.BAK'
+            BACKUP DATABASE """+db+""" TO DISK = @fileName WITH COPY_ONLY"""
+
+            return statement
+
+        except Exception as e:
+            print(" Error occured in SQL")
+            print(e)
+
+    def FreeSpace(self,dname):
+        try:
+            fso = com.Dispatch("Scripting.FileSystemObject")
+            drv = fso.GetDrive(dname)
+            return drv.FreeSpace/2**30
+        except Exception as e:
+            print(e)
+
+# Enter the Drive name and folder name                   
+
+drive = ["C","D","E","F","G","T","c","d","e","f","g","t"]
+fname = input(" Enter the Folder Name (RITM name) :")
+drivename = input(" Enter the drive name: ")
+if drivename in drive:
+    fdrive = drivename
+else:
+    print(" Enter again it should be C,D,E,F,G or T")
+    drivename = input("Enter the drive name:")
+    fdrive = drivename
+        
+# Sending Email to inform the User 
+
+email_list = 'cld-DL_IN_VOLVO_GCC_DBA_MSSQL@grp.volvocars.com','cld-VCC_DL_MSSQL_DBA@grp.volvocars.com','ITSCSQL@volvocars.com','nverma@volvocars.com'
+SMTPserver='mailrelay.volvocars.net'
+
+# SQL Queries
+
+sqlversion = "SELECT @@VERSION"
+sqlreplication = "SELECT name, is_published, is_merge_published, is_distributor FROM master.sys.databases"
+sqllogshiping = "SELECT primary_database FROM msdb.log_shipping_primary_databases"
+sqlAOAG = "SELECT SERVERPROPERTY('IsHadrEnabled')"
+sqlfileloc = "SELECT file_id, type_desc, data_space_id, name, physical_name FROM sys.database_files"
+sqldbowner = "EXEC sys.sp_helpdb"
+sqldbonline = "select name,state_desc from sys.databases where state_desc ='online'"
+sqlserverstatus = "EXEC xp_servicecontrol N'querystate',N'MSSQLServer'"
+sqlagent = "EXEC xp_servicecontrol N'querystate',N'SQLServerAGENT'"
+sqlmsdtc = "EXEC xp_servicecontrol N'querystate',N'msdtc'"
+sqlbrowservice = "EXEC xp_servicecontrol N'querystate',N'sqlbrowser'"
+sqlolapservice = "EXEC xp_servicecontrol N'querystate',N'MSSQLServerOLAPService'"
+sqlrss = "EXEC xp_servicecontrol N'querystate',N'ReportServer'"
+sqlfreediskspace = "SELECT DB_NAME() AS DbName, name AS FileName,type_desc,size/128.0 AS CurrentSizeMB, size/128.0 - CAST(FILEPROPERTY(name, 'SpaceUsed') AS INT)/128.0 AS FreeSpaceMB FROM sys.database_files WHERE type IN (0,1)"
+sqlbakupsize = """SELECT CONVERT(DECIMAL(10,2),(SUM(size * 8.00) / 1024.00 / 1024.00)) As UsedSpace
+FROM master.sys.master_files"""
+sqlcluster = "SELECT NodeName, status, status_description, is_current_owner FROM sys.dm_os_cluster_nodes;"
+sqldbmirror = """SELECT @@SERVERNAME as Server_Name,
+              DB_NAME(database_id) as Database_Name, 
+              mirroring_state_desc,
+              mirroring_role_desc,
+              mirroring_safety_level_desc
+FROM
+              sys.database_mirroring
+WHERE 
+            mirroring_role IS NOT NULL"""
+
+# Start reading the inputserverlist file
+
+logging.info("**************************************************")
+logging.info("info")
+logging.info('Started Script Execution')
+
+serverlist = open(r'C:\pyt\inputserverlist.txt','r')
+for line in serverlist.readlines():
+    fname_inst = ''.strip()
+    data = line.split(',')
+    server = data[0]
+    instance = data[1].rstrip("\n")
+    logging.info("Read windows server and SQL server name...{0}".format(server))
+    #username = input(" Enter the Username  ")
+    #password = input(" Enter the Password  ")
+    print(" Server "+server)
+    print(" instance "+instance)
+    ins = instance.find('\\')
+    if ins:
+        inst = instance.replace('\\','_')
+    
+    fname_inst =  fname + "_"+ ""+inst+""
+
+    prepost = PrePostCheck()  # Create the object of the class
+    connection = prepost.connection_check(server,instance)
+    prepost.folder_created(connection,fname_inst,fdrive)
+    
+   # Check Drive free space 
+
+    if drivename == "c" or drivename == "C":
+        path = r'\\'+server+'\C$'
+    
+    elif drivename == "d" or drivename == "D":
+        path = r'\\'+server+'\D$'
+    
+    elif drivename == "e" or drivename == "E":
+        path = r'\\'+server+'\E$'
+    
+    elif drivename == "f" or drivename == "F":
+        path = r'\\'+server+'\F$'
+    
+    elif drivename == "g" or drivename == "G":
+        path = r'\\'+server+'\G$'
+    
+    elif drivename == "T" or drivename == "t":
+        path = r'\\'+server+'\T$'
+
+    # call free space function for find the free space of drive
+
+    freespace = prepost.FreeSpace(path)    
+    print(f'FreeSpace  of {drivename} : drive {freespace} GB')
+
+    # IF connection Established of Remote server
+    
+    if connection:
+        try:
+            logging.info("Connect with SQL Server...{0}".format(instance))
+            connsql=pypyodbc.connect(DRIVER='{SQL Server Native Client 11.0}',SERVER=instance,host = server,DATABASE='master',trusted_connection='yes',MARS_connection='yes',autocommit = True)
+
+            # Starting to Create a file of all checks
+    
+            with open(r"C:\pyt\Precheckresult.txt", "a+") as f :
+                f.write("******************Result for server: " + server + " **********Date:" + today + ":****************" + "\n")
+                f.write("\n")
+        
+    # For Replication
+    
+            logging.info("Execute query for replication...{0}".format(instance))
+            print("Replication Status :" + "\n")
+            with open(r"C:\pyt\Precheckresult.txt", "a+") as f:
+                f.write("Result for Replication :"+ "\n") 
+
+            prepost.query_exe(connection,connsql,sqlreplication,instance,server)
+    
+    # For Log shipping
+    
+            logging.info("Execute query for log shipping...{0}".format(instance))
+            print("Log Shiping Status :" +"\n")
+            with open(r"C:\pyt\Precheckresult.txt", "a+") as f:
+                f.write("Log shipping Status :"+ "\n")
+
+            prepost.query_exe(connection,connsql,sqllogshiping,instance,server)
+    
+    # For AOAG
+    
+            logging.info("Execute query for AOAG...{0}".format(instance))
+            print("AOAG Status Result :"+ "\n")
+            with open(r"C:\pyt\Precheckresult.txt", "a+") as f:
+                f.write("AOAG Status Result :"+ "\n")
+                
+            prepost.query_exe(connection,connsql,sqlAOAG,instance,server)
+
+    # For Cluster Node
+    
+            logging.info("Execute query for Cluster Node...{0}".format(instance))
+            print("Cluster Node :" +"\n")
+            with open(r"C:\pyt\Precheckresult.txt", "a+") as f:
+                f.write("Cluster Node :"+ "\n")
+            prepost.query_exe(connection,connsql,sqlcluster,instance,server)
+
+    # For DBMirroring
+    
+            logging.info("Execute query for DBMirroring...{0}".format(instance))
+            print("DB Mirroring :" +"\n")
+            with open(r"C:\pyt\Precheckresult.txt", "a+") as f:
+                f.write("DBMirrorroring :"+ "\n")
+            prepost.query_exe(connection,connsql,sqldbmirror,instance,server)   
+    
+    # ii. Check the database's files locations
+    
+            logging.info("Check the database's files locations...{0}".format(instance))
+            print("Check the database's files locations" +"\n")
+            with open(r"C:\pyt\Precheckresult.txt", "a+") as f:
+                f.write("Database's files locations :" + "\n") 
+
+            prepost.query_exe(connection,connsql,sqlfileloc,instance,server)
+
+    # iii. Run the sp_helpdb procedure to record the current database owner 
+
+            logging.info("Record the current database owner...{0}".format(instance))
+            print("To record the current database owner :" +"\n")            
+            with open(r"C:\pyt\Precheckresult.txt", "a+") as f:
+                f.write("Current database owner Status :" + "\n") 
+
+            prepost.query_exe(connection,connsql,sqldbowner,instance,server)    
+
+    # iv. Note the SQL Server Service Pack or Cumulative Update level 
+
+            logging.info("Note the SQL Server Service Pack...{0}".format(instance))
+            print("SQL SERVER Version :\n")            
+            with open(r"C:\pyt\Precheckresult.txt", "a+") as f:
+                f.write("SQL SERVER Version :"+ "\n")
+            
+            prepost.query_exe(connection,connsql,sqlversion,instance,server)
+
+    #  Check the status of the SQL Server services  
+
+            logging.info("Check the status of the SQL Server services...{0}".format(instance))
+            print("For Check the status of the SQL Server services" +"\n")
+            with open(r"C:\pyt\Precheckresult.txt", "a+") as f:
+                f.write("Status of the SQL Server services :"+ "\n")
+                
+            prepost.query_exe(connection,connsql,sqlserverstatus,instance,server)
+            
+    #  SQL Server Agent 
+
+            logging.info("Check the status of SQL Server Agent...{0}".format(instance))
+            print("SQL SERVER Agent :"+ "\n")            
+            with open(r"C:\pyt\Precheckresult.txt", "a+") as f:
+                f.write("SQL SERVER Agent :" + "\n") 
+            
+            prepost.query_exe(connection,connsql,sqlagent,instance,server)   
+    
+    # For msdtc 
+
+            logging.info("Check the msdtc status...{0}".format(instance))
+            print("msdtc service :" +"\n")
+            with open(r"C:\pyt\Precheckresult.txt", "a+") as f:
+                f.write(" msdtc service status :"+ "\n") 
+            
+            prepost.query_exe(connection,connsql,sqlmsdtc,instance,server)
+
+    # For SQL Browser service 
+
+            logging.info("Check the status SQL Browser service...{0}".format(instance))
+            print("SQL Browser service status :" + "\n")            
+            with open(r"C:\pyt\Precheckresult.txt", "a+") as f:
+                f.write("SQL Browser service status :"+ "\n")
+                
+            prepost.query_exe(connection,connsql,sqlbrowservice,instance,server) 
+
+    # For MSSQL Server OLAP Service 
+
+            logging.info("Check the status MSSQL Server OLAP Service...{0}".format(instance))
+            print("MSSQL Server OLAP Service :" + "\n")            
+            with open(r"C:\pyt\Precheckresult.txt", "a+") as f:
+                f.write("MSSQL Server OLAP Service Status :" + "\n")
+                
+            prepost.query_exe(connection,connsql,sqlolapservice,instance,server)    
+
+    # For Report Server Service
+
+            logging.info("Check the status Report Server Service...{0}".format(instance))
+            print("Report Server Service :" + "\n")            
+            with open(r"C:\pyt\Precheckresult.txt", "a+") as f:
+                f.write("Report Server Service Status :" + "\n")
+                
+            prepost.query_exe(connection,connsql,sqlrss,instance,server)
+        
+    # Validate all databases are online 
+
+            logging.info("Validate all databases are online...{0}".format(instance))
+            print(" Validate all databases are online " + "\n")
+            with open(r"C:\pyt\Precheckresult.txt", "a+") as f:
+                f.write("Validate all databases are online :" + "\n")
+                
+            prepost.query_exe(connection,connsql,sqldbonline,instance,server)
+
+    # Check free disk space 
+
+            logging.info("Check free disk space...{0}".format(instance))
+            print("Check free disk space :" + "\n")            
+            with open(r"C:\pyt\Precheckresult.txt", "a+") as f:
+                f.write("Check free disk space :"+ "\n")
+                
+            prepost.query_exe(connection,connsql,sqlfreediskspace,instance,server)
+
+
+    # Check SQL database Size for backup
+
+            logging.info("Check SQL database Size for backup...{0}".format(instance))
+            print("backup size IN GB :" +"\n")
+            with open(r"C:\pyt\Precheckresult.txt", "a+") as f:
+                f.write("Back up size in GB:"+ "\n")
+                
+            sqldbsize = prepost.query_exe(connection,connsql,sqlbakupsize,instance,server)
+            #print(sqldbsize)
+            
+    
+    # Backup all the System and User databases
+
+            logging.info("Backup all the System and User databases...{0}".format(instance))
+            print("Backup all the System and User databases" + "\n")            
+            cursor_backup = connsql.cursor()
+            cursor_backup.execute('SELECT name FROM master.sys.databases WHERE state = 0 AND is_in_standby = 0')
+            result = cursor_backup.fetchall()
+
+            for db in result:
+                try:            
+                    dbname = str(db).split("'")[1::2][0]
+
+                    if (dbname != 'tempdb'):
+                        if sqldbsize < freespace :
+                            connsql.autocommit = True                
+                            cursor_backup = connsql.cursor()
+                            cursor_backup.execute(prepost.sql(dbname,fname_inst,fdrive,server))
+                            print('Status of Backup for %s : Complete\n'% dbname)
+                            logging.info("Backup created...{0}".format(dbname))
+                            time.sleep(3)
+
+                            with open(r"C:\pyt\Precheckresult.txt", "a+") as f:
+                                f.write("Backup Created %s: " % dbname + server  + "\n")
+                                f.write("\n")
+                        else:
+                            with open(r"C:\pyt\Prechecknotresult.txt", "a+") as f:
+                                f.write(f"Due to less size available in Drive {fdrive} ")
+                            raise Exception (f"Backup not created of {dbname} of {instance} due to less size available in Drive {fdrive} of {server}")
+                            
+                except Exception as e:                    
+                    print('Exception for %s and it is :%s'%(dbname,e))
+                    with open(r"C:\pyt\Prechecknotresult.txt", "a+") as f:
+                        f.write("Backup not Created %s" % dbname + "  " + instance + " " + server + "\n")
+                        #f.write("\n")
+                    continue
+                
+            print("Completed for server: " + server)
+                    
+            connsql.close()
+
+            # Find free space of all the drives of remote server
+
+            logging.info("find free space of all the drives of remote server...{0}".format(server))
+            with open(r"C:\pyt\Prechecknotresult.txt", "a+") as f:
+                f.write(f"Free space available in server ******{server}******\n \n")
+
+            pathC = r'\\' + server + '\C$'
+            freespaceC = prepost.FreeSpace(pathC)
+            # print(f"freespace available in {freespaceC} GB in C: drive")
+            with open(r"C:\pyt\Prechecknotresult.txt", "a+") as f:
+                f.write(f"freespace available in C drive : {freespaceC} GB  \n")
+                f.write("\n")
+
+            pathD = r'\\' + server + '\D$'
+            freespaceD = prepost.FreeSpace(pathD)
+            # print(f"freespace available in {freespaceD} GB in D: drive")
+            with open(r"C:\pyt\Prechecknotresult.txt", "a+") as f:
+                f.write(f"freespace available in D drive : {freespaceD} GB \n ")
+                f.write("\n")
+
+            pathE = r'\\' + server + '\E$'
+            freespaceE = prepost.FreeSpace(pathE)
+            # print(f"freespace available in {freespaceE} GB in E: drive")
+            with open(r"C:\pyt\Prechecknotresult.txt", "a+") as f :
+                f.write(f"freespace available in E drive : {freespaceE} GB \n")
+                f.write("\n")
+
+            pathF = r'\\' + server + '\F$'
+            freespaceF = prepost.FreeSpace(pathF)
+            # print(f"freespace available in {freespaceF} GB in F: drive")
+            with open(r"C:\pyt\Prechecknotresult.txt", "a+") as f :
+                f.write(f"freespace available in F drive : {freespaceF} GB \n")
+                f.write("\n")
+
+            pathG = r'\\' + server + '\G$'
+            freespaceG = prepost.FreeSpace(pathG)
+            # print(f"freespace available in {freespaceG} GB in G: drive")
+            with open(r"C:\pyt\Prechecknotresult.txt", "a+") as f :
+                f.write(f"freespace available in G drive : {freespaceG} GB \n")
+                f.write("\n")
+
+            pathT = r'\\' + server + '\T$'
+            freespaceT = prepost.FreeSpace(pathT)
+            # print(f"freespace available in {freespaceT} GB in T: drive")
+            with open(r"C:\pyt\Prechecknotresult.txt", "a+") as f :
+                f.write(f"freespace available in T drive : {freespaceT} GB \n")
+                f.write("\n")
+            
+        except Exception as e:
+            print(" Error occured : %s "%e)
+            with open(r"C:\pyt\Prechecknotresult.txt", "a+") as f:
+                f.write("Unable to connect with database: " + instance +"\n")
+                f.write("No result for : " + server + "  " + instance + "\n")
+    
+    else:
+        print(server + "  "+" is not accessible on  " + today )
